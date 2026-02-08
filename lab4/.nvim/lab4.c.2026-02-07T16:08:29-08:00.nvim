@@ -1,0 +1,85 @@
+#define _DEFAULT_SOURCE
+#include <errno.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#define BUF_SIZE 256
+typedef struct header {
+  uint64_t size;
+  struct header *next;
+} header;
+void handle_error(const char *msg) {
+  perror(msg);
+  exit(1);
+}
+static header *list = NULL;
+void print_out(char *format, void *data, size_t data_size) {
+  char buf[BUF_SIZE];
+  ssize_t len = snprintf(buf, BUF_SIZE, format,
+                         data_size == sizeof(uint64_t) ? *(uint64_t *)data
+                                                       : *(void **)data);
+  if (len < 0) {
+    handle_error("snprintf");
+  }
+  write(STDOUT_FILENO, buf, len);
+}
+
+static void print_bytes(const void *p, size_t p_size) {
+  const unsigned char *b = (const unsigned char *)p;
+  char *a = NULL;
+  for (size_t i = 0; i < p_size; i++) {
+    uint64_t v = b[i];
+    print_out("%lu ", &v, sizeof(v));
+    print_out("\n", &a, sizeof(a));
+  }
+}
+
+void *create() {
+  if (!list)
+    return NULL;
+  header *head = list;
+  list = head->next;
+  return (char *)head + sizeof(header);
+}
+int main() {
+  void *a = sbrk(0);
+  void *b = sbrk(256);
+
+  header *b0 = (header *)b;
+  header *b1 = (header *)((char *)b + 128);
+
+  b0->size = 128;
+  b1->size = 128;
+
+  b1->next = b0;
+  b0->next = NULL;
+
+  list = b1;
+  void *p1 = create();
+  void *p2 = create();
+  size_t p_size = 128 - sizeof(header);
+  if (p1)
+    memset(p1, 0, 128 - sizeof(header));
+  if (p2)
+    memset(p2, 1, 128 - sizeof(header));
+  // uint64_t p1_64 = (uint64_t)(uintptr_t)p1;
+  // uint64_t p2_64 = (uint64_t)(uintptr_t)p2;
+
+  uint64_t n0 = (uint64_t)(uintptr_t)b0->next;
+  uint64_t n1 = (uint64_t)(uintptr_t)b1->next;
+  uint64_t s0 = (uint64_t)(uintptr_t)b0->size;
+  uint64_t s1 = (uint64_t)(uintptr_t)b1->size;
+
+  print_out("first block:       0x%lx\n", &b0, sizeof(b0));
+  print_out("second block:      0x%lx\n", &b1, sizeof(b1));
+  print_out("first block size:  %lx\n", &s0, sizeof(s0));
+  print_out("first block next:  0x%lx\n", &n0, sizeof(n0));
+  print_out("second block size: %lx\n", &s1, sizeof(s1));
+  print_out("second block next: 0x%lx\n", &n1, sizeof(n1));
+  print_bytes(p1, p_size);
+  print_bytes(p2, p_size);
+  return 0;
+}
